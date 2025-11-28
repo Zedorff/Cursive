@@ -155,6 +155,11 @@ utils.GetReactionColor = function(unitstr)
 		r, g, b = color.r, color.g, color.b
 	end
 
+	if UnitIsUnit(unitstr.."target", "player") then
+		-- special case for units targeting the player
+		r, g, b = 0, 1, 0
+	end
+
 	return utils.rgbhex(r, g, b), r, g, b
 end
 
