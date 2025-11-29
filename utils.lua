@@ -160,6 +160,10 @@ utils.GetReactionColor = function(unitstr)
 		r, g, b = 0, 1, 0
 	end
 
+	if Cursive.filter.highlighted(unitstr) then
+		r, g, b = 0, 0.5, 1
+	end
+
 	return utils.rgbhex(r, g, b), r, g, b
 end
 
