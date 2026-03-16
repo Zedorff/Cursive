@@ -105,6 +105,8 @@ L:RegisterTranslations("enUS", function()
 		["Ignored Mobs Desc"] = "Comma separated list of strings to ignore if found in the unit name.  If you use any of these regex characters (*+%?) it will do a regex search otherwise it will do a plain text search.  So both Rift-Lost and Rift%-Lost should work.",
 		["Shared Faerie Fire"] = true,
 		["This will show other player's Faerie Fires and avoid trying to cast Faerie Fire on those mobs"] = true,
+		["Highlighted Mobs List (Enter to save)"] = true,
+		["Highlighted Mobs Desc"] = "Comma separated list of strings to highlight if found in the unit name.  If you use any of these regex characters (*+%?) it will do a regex search otherwise it will do a plain text search.  So both Rift-Lost and Rift%-Lost should work.",
 
 		-- spells
 		["Rank"] = true,

@@ -73,6 +73,23 @@ filter.notignored = function(unit)
 	return true
 end
 
+filter.highlighted = function(unit)
+	if not Cursive.db.profile.highlightlist or table.getn(Cursive.db.profile.highlightlist) == 0 then
+		return false
+	end
+
+	local unitName = UnitName(unit)
+	if not unitName then
+		return false
+	end
+	for _, str in ipairs(Cursive.db.profile.highlightlist) do
+		if string.find(string.lower(unitName), string.lower(str), nil, not Cursive.db.profile.highlightlistuseregex) then
+			return true
+		end
+	end
+	return false
+end
+
 Cursive.filter = filter
 
 function Cursive:ShouldDisplayGuid(guid)

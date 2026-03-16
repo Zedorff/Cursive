@@ -52,6 +52,9 @@ Cursive:RegisterDefaults("profile", {
 	filterhascurse = false,
 	filterignored = true,
 
+	highlightlist = {"Draenei Netherwalker"},
+	highlightlistuseregex = false,
+
 	ignorelist = {},
 	ignorelistuseregex = false,
 })
@@ -437,11 +440,33 @@ local mobFilters = {
 			Cursive.db.profile.filterhascurse = v
 		end,
 	},
+	["highlightlist"] = {
+		type = "text",
+		name = L["Highlighted Mobs List (Enter to save)"],
+		desc = L["Highlighted Mobs Desc"],
+		usage = "whelp,black dragonkin,Draenei Netherwalker",
+		order = 67,
+		get = function()
+			if Cursive.db.profile.highlightlist and table.getn(Cursive.db.profile.highlightlist) > 0 then
+				return table.concat(Cursive.db.profile.highlightlist, ",") or ""
+			end
+			return ""
+		end,
+		set = function(v)
+			if not v or v == "" then
+				Cursive.db.profile.highlightlist = {}
+			else
+				Cursive.db.profile.highlightlist = splitString(v, ",");
+			end
+			-- check for common lua regex patterns
+			Cursive.db.profile.highlightlistuseregex = string.find(v, "[*+%%?]") ~= nil
+		end,
+	},
 	["notignored"] = {
 		type = "toggle",
 		name = L["Not ignored"],
 		desc = L["Not ignored"],
-		order = 67,
+		order = 68,
 		get = function()
 			return Cursive.db.profile.filterignored
 		end,
@@ -453,8 +478,8 @@ local mobFilters = {
 		type = "text",
 		name = L["Ignored Mobs List (Enter to save)"],
 		desc = L["Ignored Mobs Desc"],
-		usage = "whelp, black dragonkin, player3",
-		order = 68,
+		usage = "whelp,black dragonkin,player3",
+		order = 69,
 		get = function()
 			if Cursive.db.profile.ignorelist and table.getn(Cursive.db.profile.ignorelist) > 0 then
 				return table.concat(Cursive.db.profile.ignorelist, ",") or ""
