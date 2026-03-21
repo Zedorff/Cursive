@@ -1,4 +1,4 @@
-if not Cursive.superwow then
+if not Cursive.nampower then
 	return
 end
 local L = AceLibrary("AceLocale-2.2"):new("Cursive")
@@ -20,6 +20,7 @@ local curses = {
 		[52551] = true,
 		[52552] = true,
 	},
+  travelTimeSpellIds = {},
 	darkHarvestData = {},
 	guids = {},
 	isChanneling = false,
@@ -76,14 +77,6 @@ local curses = {
 
 -- combat events for curses
 local fades_test = L["(.+) fades from (.+)"]
-local resist_test = L["Your (.+) was resisted by (.+)"]
-local missed_test = L["Your (.+) missed (.+)"]
-local parry_test = L["Your (.+) is parried by (.+)"]
-local immune_test = L["Your (.+) fail.+\. (.+) is immune"]
-local block_test = L["Your (.+) was blocked by (.+)"]
-local dodge_test = L["Your (.+) was dodged by (.+)"]
-
-local molten_blast_test = L["Your Molten Blast(.+)for .+ Fire damage"]
 
 local lastGuid = nil
 
@@ -131,8 +124,39 @@ function curses:LoadCurses()
 		curses.trackedCurseIds = getWarriorSpells()
 	end
 
+  -- build travelTimeSpellIds from spell data
+  -- travelTime spells must have a damage component otherwise it won't work
+  curses.travelTimeSpellIds = {}
+  for id, data in pairs(curses.trackedCurseIds) do
+    if data.travelTime then
+      curses.travelTimeSpellIds[id] = true
+    end
+  end
+
+  -- register travel time spell tracking
+  if next(curses.travelTimeSpellIds) and not Cursive:IsEventRegistered("SPELL_DAMAGE_EVENT_SELF") then
+    Cursive:RegisterEvent("SPELL_DAMAGE_EVENT_SELF", function(targetGuid, casterGuid, spellID, amount, mitigationStr, hitInfo, spellSchool, effectAuraStr)
+      if curses.travelTimeSpellIds[spellID] and curses.trackedCurseIds[spellID] then
+        lastGuid = targetGuid
+        local duration = curses:GetCurseDuration(spellID)
+        curses:ApplyCurse(spellID, targetGuid, GetTime(), duration)
+      end
+    end)
+  end
+
 	-- load shared debuffs
 	curses.sharedDebuffs = getSharedDebuffs()
+
+  -- register faerie fire tracking from other players
+  if Cursive.db.profile.shareddebuffs.faeriefire then
+    if not Cursive:IsEventRegistered("SPELL_GO_OTHER") then
+      Cursive:RegisterEvent("SPELL_GO_OTHER", function(itemId, spellID, casterGuid, targetGuid, castFlags, numTargetsHit, numTargetsMissed)
+        if curses.sharedDebuffs.faeriefire[spellID] then
+          curses.sharedDebuffGuids.faeriefire[targetGuid] = GetTime()
+        end
+      end)
+    end
+  end
 
 	-- go through spell slots and
 	local i = 1
@@ -152,7 +176,7 @@ function curses:LoadCurses()
 
 	for id, data in pairs(curses.trackedCurseIds) do
 		-- get the texture
-		local name, rank, texture = SpellInfo(id)
+    local texture = GetSpellIconTexture(GetSpellRecField(id, "spellIconID"))
 		-- update trackedCurseNamesToTextures
 		curses.trackedCurseNamesToTextures[data.name] = texture
 		-- update trackedCurseIds
@@ -267,6 +291,26 @@ local function StopChanneling()
 	curses.isChanneling = false
 end
 
+local function VerifyMeleeBleedApplied(targetGuid, spellID)
+	local curseData = curses.trackedCurseIds[spellID]
+	if not curseData or not curseData.meleeBleed then
+		return
+	end
+
+	if not curses.guids[targetGuid] or not curses.guids[targetGuid][curseData.name] then
+		return
+	end
+
+	local auras = GetUnitField(targetGuid, "aura") or {}
+	for i, auraSpellID in pairs(auras) do
+		if auraSpellID == spellID then
+			return
+		end
+	end
+
+	curses:RemoveCurse(targetGuid, curseData.name)
+end
+
 Cursive:RegisterEvent("SPELLCAST_CHANNEL_START", function()
 	curses.isChanneling = true
 end);
@@ -274,155 +318,92 @@ end);
 Cursive:RegisterEvent("SPELLCAST_CHANNEL_STOP", StopChanneling);
 Cursive:RegisterEvent("SPELLCAST_INTERRUPTED", StopChanneling);
 
-Cursive:RegisterEvent("UNIT_CASTEVENT", function(casterGuid, targetGuid, event, spellID, castDuration)
-	-- immolate will fire both start and cast
-	if event == "CAST" then
-		local _, guid = UnitExists("player")
-		if casterGuid ~= guid then
-			-- check for faeriefire
-			if Cursive.db.profile.shareddebuffs.faeriefire and curses.sharedDebuffs.faeriefire[spellID] then
-				curses.sharedDebuffGuids.faeriefire[targetGuid] = GetTime()
-			end
-
-			return
-		end
-
-		-- store pending cast
-		curses.pendingCast = {
-			spellID = spellID,
-			targetGuid = targetGuid,
-			castDuration = castDuration
-		}
-
-		if curses.isDruid then
-			-- track ferocious bite cast time and target
-			if spellID == 22557 or
-					spellID == 22568 or
-					spellID == 22827 or
-					spellID == 22828 or
-					spellID == 22829 or
-					spellID == 31018 then
-				curses.lastFerociousBiteTime = GetTime()
-				curses.lastFerociousBiteTargetGuid = targetGuid
-			end
-		end
-
-		if curses.isShaman then
-			if spellID >= 36916 and spellID <= 36921 then
-				curses.lastMoltenBlastTargetGuid = targetGuid
-			end
-		end
-
-		-- delay to check for resists/failures
-		local delay = 0.2
-
-		local _, _, nping = GetNetStats()
-		-- ignore extreme pings
-		if nping and nping > 0 and nping < 500 then
-			delay = 0.05 + (nping / 1000.0) -- convert to seconds
-		end
-
-		if curses.trackedCurseIds[spellID] then
-			lastGuid = targetGuid
-			local duration = curses:GetCurseDuration(spellID) - delay
-			Cursive:ScheduleEvent("addCurse" .. targetGuid .. curses.trackedCurseIds[spellID].name, curses.ApplyCurse, delay, self, spellID, targetGuid, GetTime(), duration)
-		elseif curses.conflagrateSpellIds[spellID] then
-			Cursive:ScheduleEvent("updateCurse" .. targetGuid .. L["conflagrate"], curses.UpdateCurse, delay, self, spellID, targetGuid, GetTime())
-		end
-	elseif event == "START" then
-		if curses.trackedCurseIds[spellID] then
-			local _, guid = UnitExists("player")
-			if casterGuid ~= guid then
-				return
-			end
-
-			-- store pending cast
+-- player spell completions
+Cursive:RegisterEvent("SPELL_GO_SELF", function(itemId, spellID, casterGuid, targetGuid, castFlags, numTargetsHit, numTargetsMissed)
+  if curses.travelTimeSpellIds[spellID] and numTargetsMissed == 0 then
 			curses.pendingCast = {
 				spellID = spellID,
 				targetGuid = targetGuid,
-				castDuration = castDuration
 			}
-		end
-	elseif event == "FAIL" then
-		if curses.trackedCurseIds[spellID] then
-			local _, guid = UnitExists("player")
-			if casterGuid ~= guid then
-				return
-			end
-			-- clear pending cast
-			curses.pendingCast = {}
-		end
-	elseif event == "CHANNEL" then
-		-- dark harvest
-		if curses.darkHarvestSpellIds[spellID] then
-			local _, guid = UnitExists("player")
-			if casterGuid ~= guid then
-				return
-			end
+  end
 
-			curses.darkHarvestData = {
-				spellID = spellID,
-				targetGuid = targetGuid,
-				castDuration = curses:ScanTooltipForDuration(spellID),
-				start = GetTime()
-			}
+  if curses.isDruid then
+    -- track ferocious bite cast time and target
+    if spellID == 22557 or
+        spellID == 22568 or
+        spellID == 22827 or
+        spellID == 22828 or
+        spellID == 22829 or
+        spellID == 31018 then
+      curses.lastFerociousBiteTime = GetTime()
+      curses.lastFerociousBiteTargetGuid = targetGuid
+    end
+  end
+
+  if curses.isShaman then
+    if spellID >= 36916 and spellID <= 36921 then
+      curses.lastMoltenBlastTargetGuid = targetGuid
+      if numTargetsHit > 0 then
+        local flame_shock = L["flame shock"]
+        if curses:HasCurse(flame_shock, targetGuid, 0) then
+          curses.guids[targetGuid][flame_shock]["start"] = GetTime()
+        end
+      end
+    end
+  end
+
+  if numTargetsHit > 0 then
+    if curses.trackedCurseIds[spellID] and not curses.travelTimeSpellIds[spellID] then
+			lastGuid = targetGuid
+      local duration = curses:GetCurseDuration(spellID)
+      curses:ApplyCurse(spellID, targetGuid, GetTime(), duration)
+      if curses.trackedCurseIds[spellID].meleeBleed and not curses.mobsThatBleed[targetGuid] then
+        Cursive:ScheduleEvent(VerifyMeleeBleedApplied, 0.05, targetGuid, spellID)
+      end
+		elseif curses.conflagrateSpellIds[spellID] then
+      curses:UpdateCurse(spellID, targetGuid, GetTime())
 		end
+  end
+end)
+
+-- player spell start (cast time spells)
+Cursive:RegisterEvent("SPELL_START_SELF", function(itemId, spellID, casterGuid, targetGuid, castFlags, castTime)
+  if curses.trackedCurseIds[spellID] then
+    curses.pendingCast = {
+      spellID = spellID,
+      targetGuid = targetGuid,
+    }
+  end
+end)
+
+-- player spell failure
+Cursive:RegisterEvent("SPELL_FAILED_SELF", function(spellID, spellResult, failedByServer)
+  if curses.trackedCurseIds[spellID] then
+    curses.pendingCast = {}
+  end
+end)
+
+-- player channel start (dark harvest)
+Cursive:RegisterEvent("SPELL_CHANNEL_START", function(spellID, targetGuid, durationMs)
+  if curses.darkHarvestSpellIds[spellID] then
+    curses.darkHarvestData = {
+      spellID = spellID,
+      targetGuid = targetGuid,
+      castDuration = durationMs / 1000,
+      start = GetTime()
+    }
 	end
 end)
 
-Cursive:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE",
-		function(message)
-			local spell_failed_tests = {
-				resist_test,
-				immune_test
-			}
-			-- only some classes have melee spells that need to check for dodge, parry, miss, block
-			if playerClassName == "DRUID" or playerClassName == "HUNTER" or playerClassName == "ROGUE" then
-				spell_failed_tests = {
-					resist_test,
-					immune_test,
-					missed_test,
-					parry_test,
-					block_test,
-					dodge_test
-				}
-			end
+Cursive:RegisterEvent("SPELL_MISS_SELF", function(casterGuid, targetGuid, spellID, missInfo)
+  curses.pendingCast = {}
 
-			local spellName, failedTarget
-			for _, test in pairs(spell_failed_tests) do
-				local _, _, foundSpell, foundTarget = string.find(message, test)
-				if foundSpell and foundTarget then
-					spellName = foundSpell
-					failedTarget = foundTarget
-					break
-				end
-			end
-
-			if spellName and failedTarget then
-				spellName = curses:GetLowercaseSpellName(spellName)
-
-				curses.pendingCast = {}
-
-				if curses.trackedCurseNamesToTextures[spellName] and lastGuid then
-					Cursive:CancelScheduledEvent("addCurse" .. lastGuid .. spellName)
-					-- check if sound should be played
-					if curses:ShouldPlayResistSound(lastGuid) then
-						PlaySoundFile("Interface\\AddOns\\Cursive\\Sounds\\resist.mp3")
-					end
-				elseif spellName == L["conflagrate"] and lastGuid then
-					Cursive:CancelScheduledEvent("updateCurse" .. lastGuid .. spellName)
-				end
-				return
-			end
-
-			if curses.isShaman and string.find(message, molten_blast_test) then
-				local flame_shock = L["flame shock"]
-				if curses:HasCurse(flame_shock, curses.lastMoltenBlastTargetGuid, 0) then
-					curses.guids[curses.lastMoltenBlastTargetGuid][flame_shock]["start"] = GetTime() -- reset start time to current time
-				end
-			end
-		end
-) -- resists
+  if curses.trackedCurseIds[spellID] and lastGuid then
+    if curses:ShouldPlayResistSound(lastGuid) then
+      PlaySoundFile("Interface\\AddOns\\Cursive\\Sounds\\resist.mp3")
+    end
+  end
+end)
 
 Cursive:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_OTHER", function(message)
 	-- check if spell that faded is relevant
@@ -454,7 +435,7 @@ function curses:GetLastTickTime(curseData)
 	end
 
 	local tickTime = curseData.duration / ticks
-	local currentTime = GetTime() + tickTime * .2 -- dh won't apply to previous tick if within 20% of tick time
+	local currentTime = GetTime()
 
 	return math.floor((currentTime - curseData.start) / tickTime) * tickTime + curseData.start
 end
@@ -574,9 +555,13 @@ function curses:GetCurseData(spellName, guid)
 	return nil
 end
 
-function curses:HasCurse(lowercaseSpellNameNoRank, targetGuid, minRemaining)
+function curses:HasCurse(lowercaseSpellNameNoRank, targetGuid, minRemaining, malediction)
 	if not minRemaining then
 		minRemaining = 0 -- default to 0
+	end
+
+	if malediction == nil then
+		malediction = 1 -- default to enabled
 	end
 
 	-- handle faerie fire special case
@@ -585,18 +570,16 @@ function curses:HasCurse(lowercaseSpellNameNoRank, targetGuid, minRemaining)
 		lowercaseSpellNameNoRank = L["faerie fire"]
 	end
 
-  -- handle malediction for warlocks
-  if curses.isWarlock and
-      lowercaseSpellNameNoRank == L["curse of recklessness"] or
-      lowercaseSpellNameNoRank == L["curse of the elements"] or
-      lowercaseSpellNameNoRank == L["curse of shadow"] then
-    -- check if they have malediction
-    local _, _, _, _, malediction = GetTalentInfo(1, 17)
-
-    if malediction > 0 then
-      lowercaseSpellNameNoRank = L["curse of agony"] -- check for curse of agony instead
-    end
-  end
+	-- handle malediction for warlocks
+	if curses.isWarlock and malediction ~= 0 and (
+			lowercaseSpellNameNoRank == L["curse of recklessness"] or
+			lowercaseSpellNameNoRank == L["curse of the elements"] or
+			lowercaseSpellNameNoRank == L["curse of shadow"]) then
+		local _, _, _, _, hasMalediction = GetTalentInfo(1, 17)
+		if hasMalediction > 0 then
+			lowercaseSpellNameNoRank = L["curse of agony"]
+		end
+	end
 
 	if curses.guids[targetGuid] and curses.guids[targetGuid][lowercaseSpellNameNoRank] then
 		local remaining = Cursive.curses:TimeRemaining(curses.guids[targetGuid][lowercaseSpellNameNoRank])
@@ -645,17 +628,6 @@ function curses:ApplyCurse(spellID, targetGuid, startTime, duration)
 
 	local name = curses.trackedCurseIds[spellID].name
 	local rank = curses.trackedCurseIds[spellID].rank
-
-	if curses.isDruid and name == L["rake"] then
-		-- check if mob is in bleed whitelist first
-		-- these bosses are most likely to hit 48 client debuff cap
-		if not curses.mobsThatBleed[targetGuid] then
-			if not curses:ScanGuidForCurse(targetGuid, spellID) then
-				-- rake not found on target, do not apply
-				return
-			end
-		end
-	end
 
 	if not curses.guids[targetGuid] then
 		curses.guids[targetGuid] = {}

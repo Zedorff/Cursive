@@ -21,10 +21,6 @@ function getWarlockSpells()
 		[18880] = { name = L["siphon life"], rank = 3, duration = 30, variableDuration = true, darkHarvest = true, numTicks=10 },
 		[18881] = { name = L["siphon life"], rank = 4, duration = 30, variableDuration = true, darkHarvest = true, numTicks=10 },
 
-		[52550] = { name = L["dark harvest"], rank = 1, duration = 8, variableDuration = true },
-		[52551] = { name = L["dark harvest"], rank = 2, duration = 8, variableDuration = true },
-		[52552] = { name = L["dark harvest"], rank = 3, duration = 8, variableDuration = true },
-
 		[603] = { name = L["curse of doom"], rank = 1, duration = 60 },
 
 		[704] = { name = L["curse of recklessness"], rank = 1, duration = 120 },
@@ -60,9 +56,9 @@ function getWarlockSpells()
 		[11668] = { name = L["immolate"], rank = 7, duration = 15 },
 		[25309] = { name = L["immolate"], rank = 8, duration = 15 },
 
-		[6789] = { name = L["death coil"], rank = 1, duration = 3 },
-		[17925] = { name = L["death coil"], rank = 2, duration = 3 },
-		[17926] = { name = L["death coil"], rank = 3, duration = 3 },
+		[6789] = { name = L["death coil"], rank = 1, duration = 3, travelTime = true },
+		[17925] = { name = L["death coil"], rank = 2, duration = 3, travelTime = true },
+		[17926] = { name = L["death coil"], rank = 3, duration = 3, travelTime = true },
 
 		[710] = { name = L["banish"], rank = 1, duration = 20 },
 		[18647] = { name = L["banish"], rank = 2, duration = 30 },
